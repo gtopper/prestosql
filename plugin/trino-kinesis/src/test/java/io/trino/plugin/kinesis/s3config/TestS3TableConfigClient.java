@@ -53,7 +53,7 @@ public class TestS3TableConfigClient
         assertTrue(uri1.getRegion() == null);
 
         // show info:
-        log.info("Tested out URI1 : " + uri1.toString());
+        log.info("Tested out URI1 : %s", uri1);
 
         AmazonS3URI uri2 = new AmazonS3URI("s3://some.big.bucket/long/complex/path");
         assertNotNull(uri2.getKey());
@@ -65,7 +65,7 @@ public class TestS3TableConfigClient
         assertTrue(uri2.getRegion() == null);
 
         // info:
-        log.info("Tested out URI2 : " + uri2.toString());
+        log.info("Tested out URI2 : %s", uri2);
 
         AmazonS3URI uri3 = new AmazonS3URI("s3://trino.kinesis.config/unit-test/trino-kinesis");
         assertNotNull(uri3.getKey());
@@ -94,7 +94,7 @@ public class TestS3TableConfigClient
                 .put("kinesis.hide-internal-columns", "false")
                 .put("kinesis.access-key", TestUtils.noneToBlank(accessKey))
                 .put("kinesis.secret-key", TestUtils.noneToBlank(secretKey))
-                .build();
+                .buildOrThrow();
 
         KinesisPlugin kinesisPlugin = new KinesisPlugin();
         KinesisConnector kinesisConnector = TestUtils.createConnector(kinesisPlugin, properties, false);
@@ -108,7 +108,7 @@ public class TestS3TableConfigClient
             log.error("interrupted ...");
         }
 
-        KinesisMetadata metadata = (KinesisMetadata) kinesisConnector.getMetadata(new ConnectorTransactionHandle() {});
+        KinesisMetadata metadata = (KinesisMetadata) kinesisConnector.getMetadata(SESSION, new ConnectorTransactionHandle() {});
         SchemaTableName tblName = new SchemaTableName("default", "test123");
         KinesisTableHandle tableHandle = metadata.getTableHandle(SESSION, tblName);
         assertNotNull(metadata);

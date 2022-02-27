@@ -27,7 +27,6 @@ import io.trino.plugin.hive.HiveBasicStatistics;
 import io.trino.plugin.hive.HiveColumnHandle;
 import io.trino.plugin.hive.HivePartition;
 import io.trino.plugin.hive.PartitionStatistics;
-import io.trino.plugin.hive.authentication.HiveIdentity;
 import io.trino.plugin.hive.metastore.DateStatistics;
 import io.trino.plugin.hive.metastore.DecimalStatistics;
 import io.trino.plugin.hive.metastore.DoubleStatistics;
@@ -45,7 +44,6 @@ import io.trino.spi.statistics.Estimate;
 import io.trino.spi.statistics.TableStatistics;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
-import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 
@@ -76,10 +74,9 @@ import static io.trino.plugin.hive.HivePartition.UNPARTITIONED_ID;
 import static io.trino.plugin.hive.HiveSessionProperties.getPartitionStatisticsSampleSize;
 import static io.trino.plugin.hive.HiveSessionProperties.isIgnoreCorruptedStatistics;
 import static io.trino.plugin.hive.HiveSessionProperties.isStatisticsEnabled;
+import static io.trino.spi.statistics.StatsUtil.toStatsRepresentation;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DateType.DATE;
-import static io.trino.spi.type.Decimals.isLongDecimal;
-import static io.trino.spi.type.Decimals.isShortDecimal;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
@@ -87,8 +84,6 @@ import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static java.lang.Double.isFinite;
 import static java.lang.Double.isNaN;
-import static java.lang.Double.parseDouble;
-import static java.lang.Float.intBitsToFloat;
 import static java.lang.String.format;
 import static java.util.Collections.unmodifiableList;
 import static java.util.Objects.requireNonNull;
@@ -103,7 +98,7 @@ public class MetastoreHiveStatisticsProvider
     public MetastoreHiveStatisticsProvider(SemiTransactionalHiveMetastore metastore)
     {
         requireNonNull(metastore, "metastore is null");
-        this.statisticsProvider = (session, table, hivePartitions) -> getPartitionsStatistics(session, metastore, table, hivePartitions);
+        this.statisticsProvider = (session, table, hivePartitions) -> getPartitionsStatistics(metastore, table, hivePartitions);
     }
 
     @VisibleForTesting
@@ -112,7 +107,7 @@ public class MetastoreHiveStatisticsProvider
         this.statisticsProvider = requireNonNull(statisticsProvider, "statisticsProvider is null");
     }
 
-    private static Map<String, PartitionStatistics> getPartitionsStatistics(ConnectorSession session, SemiTransactionalHiveMetastore metastore, SchemaTableName table, List<HivePartition> hivePartitions)
+    private static Map<String, PartitionStatistics> getPartitionsStatistics(SemiTransactionalHiveMetastore metastore, SchemaTableName table, List<HivePartition> hivePartitions)
     {
         if (hivePartitions.isEmpty()) {
             return ImmutableMap.of();
@@ -120,12 +115,12 @@ public class MetastoreHiveStatisticsProvider
         boolean unpartitioned = hivePartitions.stream().anyMatch(partition -> partition.getPartitionId().equals(UNPARTITIONED_ID));
         if (unpartitioned) {
             checkArgument(hivePartitions.size() == 1, "expected only one hive partition");
-            return ImmutableMap.of(UNPARTITIONED_ID, metastore.getTableStatistics(new HiveIdentity(session), table.getSchemaName(), table.getTableName()));
+            return ImmutableMap.of(UNPARTITIONED_ID, metastore.getTableStatistics(table.getSchemaName(), table.getTableName()));
         }
         Set<String> partitionNames = hivePartitions.stream()
                 .map(HivePartition::getPartitionId)
                 .collect(toImmutableSet());
-        return metastore.getPartitionStatistics(new HiveIdentity(session), table.getSchemaName(), table.getTableName(), partitionNames);
+        return metastore.getPartitionStatistics(table.getSchemaName(), table.getTableName(), partitionNames);
     }
 
     @Override
@@ -578,31 +573,10 @@ public class MetastoreHiveStatisticsProvider
         return Optional.of(new DoubleRange(min, max));
     }
 
-    public static OptionalDouble convertPartitionValueToDouble(Type type, Object value)
+    @VisibleForTesting
+    static OptionalDouble convertPartitionValueToDouble(Type type, Object value)
     {
-        if (type.equals(BIGINT) || type.equals(INTEGER) || type.equals(SMALLINT) || type.equals(TINYINT)) {
-            return OptionalDouble.of((Long) value);
-        }
-        if (type.equals(DOUBLE)) {
-            return OptionalDouble.of((Double) value);
-        }
-        if (type.equals(REAL)) {
-            return OptionalDouble.of(intBitsToFloat(((Long) value).intValue()));
-        }
-        if (type instanceof DecimalType) {
-            DecimalType decimalType = (DecimalType) type;
-            if (isShortDecimal(decimalType)) {
-                return OptionalDouble.of(parseDouble(Decimals.toString((Long) value, decimalType.getScale())));
-            }
-            if (isLongDecimal(decimalType)) {
-                return OptionalDouble.of(parseDouble(Decimals.toString((Slice) value, decimalType.getScale())));
-            }
-            throw new IllegalArgumentException("Unexpected decimal type: " + decimalType);
-        }
-        if (type.equals(DATE)) {
-            return OptionalDouble.of((Long) value);
-        }
-        return OptionalDouble.empty();
+        return toStatsRepresentation(type, value);
     }
 
     @VisibleForTesting

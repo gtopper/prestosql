@@ -21,13 +21,16 @@ import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.NotInTransactionException;
+import io.trino.Session;
 import io.trino.connector.CatalogName;
 import io.trino.metadata.Catalog;
+import io.trino.metadata.Catalog.SecurityManagement;
 import io.trino.metadata.CatalogManager;
 import io.trino.metadata.CatalogMetadata;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorMetadata;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.transaction.IsolationLevel;
 import org.joda.time.DateTime;
@@ -178,16 +181,22 @@ public class InMemoryTransactionManager
     }
 
     @Override
-    public Map<String, CatalogName> getCatalogNames(TransactionId transactionId)
+    public Map<String, Catalog> getCatalogs(TransactionId transactionId)
     {
-        return getTransactionMetadata(transactionId).getCatalogNames();
+        return getTransactionMetadata(transactionId).getCatalogs();
+    }
+
+    @Override
+    public Optional<CatalogName> getCatalogName(TransactionId transactionId, String catalogName)
+    {
+        return getTransactionMetadata(transactionId).getCalogName(catalogName);
     }
 
     @Override
     public Optional<CatalogMetadata> getOptionalCatalogMetadata(TransactionId transactionId, String catalogName)
     {
         TransactionMetadata transactionMetadata = getTransactionMetadata(transactionId);
-        return transactionMetadata.getConnectorId(catalogName)
+        return transactionMetadata.getCalogName(catalogName)
                 .map(transactionMetadata::getTransactionCatalogMetadata);
     }
 
@@ -211,7 +220,7 @@ public class InMemoryTransactionManager
         TransactionMetadata transactionMetadata = getTransactionMetadata(transactionId);
 
         // there is no need to ask for a connector specific id since the overlay connectors are read only
-        CatalogName catalog = transactionMetadata.getConnectorId(catalogName)
+        CatalogName catalog = transactionMetadata.getCalogName(catalogName)
                 .orElseThrow(() -> new TrinoException(NOT_FOUND, "Catalog does not exist: " + catalogName));
 
         return getCatalogMetadataForWrite(transactionId, catalog);
@@ -365,22 +374,22 @@ public class InMemoryTransactionManager
             }
         }
 
-        private synchronized Map<String, CatalogName> getCatalogNames()
+        private synchronized Map<String, Catalog> getCatalogs()
         {
             // todo if repeatable read, this must be recorded
-            Map<String, CatalogName> catalogNames = new HashMap<>();
+            Map<String, Catalog> catalogs = new HashMap<>();
             catalogByName.values().stream()
                     .filter(Optional::isPresent)
                     .map(Optional::get)
-                    .forEach(catalog -> catalogNames.put(catalog.getCatalogName(), catalog.getConnectorCatalogName()));
+                    .forEach(catalog -> catalogs.put(catalog.getCatalogName(), catalog));
 
             catalogManager.getCatalogs().stream()
-                    .forEach(catalog -> catalogNames.putIfAbsent(catalog.getCatalogName(), catalog.getConnectorCatalogName()));
+                    .forEach(catalog -> catalogs.putIfAbsent(catalog.getCatalogName(), catalog));
 
-            return ImmutableMap.copyOf(catalogNames);
+            return ImmutableMap.copyOf(catalogs);
         }
 
-        private synchronized Optional<CatalogName> getConnectorId(String catalogName)
+        private synchronized Optional<CatalogName> getCalogName(String catalogName)
         {
             Optional<Catalog> catalog = catalogByName.get(catalogName);
             if (catalog == null) {
@@ -416,14 +425,15 @@ public class InMemoryTransactionManager
 
                 catalogMetadata = new CatalogMetadata(
                         metadata.getCatalogName(),
-                        metadata.getConnectorMetadata(),
+                        metadata::getConnectorMetadata,
                         metadata.getTransactionHandle(),
                         informationSchema.getCatalogName(),
-                        informationSchema.getConnectorMetadata(),
+                        informationSchema::getConnectorMetadata,
                         informationSchema.getTransactionHandle(),
                         systemTables.getCatalogName(),
-                        systemTables.getConnectorMetadata(),
+                        systemTables::getConnectorMetadata,
                         systemTables.getTransactionHandle(),
+                        metadata.getSecurityManagement(),
                         connector.getCapabilities());
 
                 this.catalogMetadata.put(catalog.getConnectorCatalogName(), catalogMetadata);
@@ -436,7 +446,7 @@ public class InMemoryTransactionManager
         public synchronized ConnectorTransactionMetadata createConnectorTransactionMetadata(CatalogName catalogName, Catalog catalog)
         {
             Connector connector = catalog.getConnector(catalogName);
-            ConnectorTransactionMetadata transactionMetadata = new ConnectorTransactionMetadata(catalogName, connector, beginTransaction(connector));
+            ConnectorTransactionMetadata transactionMetadata = new ConnectorTransactionMetadata(catalogName, connector, beginTransaction(connector), catalog.getSecurityManagement());
             checkState(connectorIdToMetadata.put(catalogName, transactionMetadata) == null);
             return transactionMetadata;
         }
@@ -446,9 +456,7 @@ public class InMemoryTransactionManager
             if (connector instanceof InternalConnector) {
                 return ((InternalConnector) connector).beginTransaction(transactionId, isolationLevel, readOnly);
             }
-            else {
-                return connector.beginTransaction(isolationLevel, readOnly);
-            }
+            return connector.beginTransaction(isolationLevel, readOnly, autoCommitContext);
         }
 
         public synchronized void checkConnectorWrite(CatalogName catalogName)
@@ -463,7 +471,7 @@ public class InMemoryTransactionManager
                 throw new TrinoException(MULTI_CATALOG_WRITE_CONFLICT, "Multi-catalog writes not supported in a single transaction. Already wrote to catalog " + writtenConnectorId.get());
             }
             if (transactionMetadata.isSingleStatementWritesOnly() && !autoCommitContext) {
-                throw new TrinoException(AUTOCOMMIT_WRITE_CONFLICT, "Catalog " + catalogName + " only supports writes using autocommit");
+                throw new TrinoException(AUTOCOMMIT_WRITE_CONFLICT, "Catalog only supports writes using autocommit: " + catalogName);
             }
         }
 
@@ -561,15 +569,21 @@ public class InMemoryTransactionManager
             private final CatalogName catalogName;
             private final Connector connector;
             private final ConnectorTransactionHandle transactionHandle;
-            private final ConnectorMetadata connectorMetadata;
+            private final SecurityManagement securityManagement;
+            @GuardedBy("this")
+            private ConnectorMetadata connectorMetadata;
             private final AtomicBoolean finished = new AtomicBoolean();
 
-            public ConnectorTransactionMetadata(CatalogName catalogName, Connector connector, ConnectorTransactionHandle transactionHandle)
+            public ConnectorTransactionMetadata(
+                    CatalogName catalogName,
+                    Connector connector,
+                    ConnectorTransactionHandle transactionHandle,
+                    SecurityManagement securityManagement)
             {
                 this.catalogName = requireNonNull(catalogName, "catalogName is null");
                 this.connector = requireNonNull(connector, "connector is null");
                 this.transactionHandle = requireNonNull(transactionHandle, "transactionHandle is null");
-                this.connectorMetadata = connector.getMetadata(transactionHandle);
+                this.securityManagement = requireNonNull(securityManagement, "securityManagement is null");
             }
 
             public CatalogName getCatalogName()
@@ -582,9 +596,18 @@ public class InMemoryTransactionManager
                 return connector.isSingleStatementWritesOnly();
             }
 
-            public synchronized ConnectorMetadata getConnectorMetadata()
+            public SecurityManagement getSecurityManagement()
+            {
+                return securityManagement;
+            }
+
+            public synchronized ConnectorMetadata getConnectorMetadata(Session session)
             {
                 checkState(!finished.get(), "Already finished");
+                if (connectorMetadata == null) {
+                    ConnectorSession connectorSession = session.toConnectorSession(catalogName);
+                    connectorMetadata = connector.getMetadata(connectorSession, transactionHandle);
+                }
                 return connectorMetadata;
             }
 

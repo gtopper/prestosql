@@ -20,7 +20,6 @@ import io.trino.testing.MaterializedResult;
 import io.trino.testing.MaterializedRow;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.testing.sql.TestTable;
-import org.intellij.lang.annotations.Language;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
@@ -63,6 +62,10 @@ public abstract class BaseMySqlConnectorTest
                 return false;
 
             case SUPPORTS_ARRAY:
+            case SUPPORTS_NEGATIVE_DATE:
+                return false;
+
+            case SUPPORTS_RENAME_SCHEMA:
                 return false;
 
             default:
@@ -122,13 +125,11 @@ public abstract class BaseMySqlConnectorTest
     protected Optional<DataMappingTestSetup> filterDataMappingSmokeTestData(DataMappingTestSetup dataMappingTestSetup)
     {
         String typeName = dataMappingTestSetup.getTrinoTypeName();
-        if (typeName.equals("time")
-                || typeName.equals("timestamp(3) with time zone")) {
+        if (typeName.equals("timestamp(3) with time zone")) {
             return Optional.of(dataMappingTestSetup.asUnsupported());
         }
 
-        if (typeName.equals("real")
-                || typeName.equals("timestamp")) {
+        if (typeName.equals("timestamp")) {
             // TODO this should either work or fail cleanly
             return Optional.empty();
         }
@@ -196,22 +197,12 @@ public abstract class BaseMySqlConnectorTest
         onRemoteDatabase().execute("DROP VIEW IF EXISTS tpch.test_view");
     }
 
-    @Override
-    @Test
-    public void testInsert()
-    {
-        onRemoteDatabase().execute("CREATE TABLE tpch.test_insert (x bigint, y varchar(100))");
-        assertUpdate("INSERT INTO test_insert VALUES (123, 'test')", 1);
-        assertQuery("SELECT * FROM test_insert", "SELECT 123 x, 'test' y");
-        assertUpdate("DROP TABLE test_insert");
-    }
-
     @Test
     public void testNameEscaping()
     {
         Session session = testSessionBuilder()
                 .setCatalog("mysql")
-                .setSchema(getSession().getSchema().get())
+                .setSchema(getSession().getSchema())
                 .build();
 
         assertFalse(getQueryRunner().tableExists(session, "test_table"));
@@ -263,42 +254,22 @@ public abstract class BaseMySqlConnectorTest
         assertUpdate("DROP TABLE char_trailing_space");
     }
 
-    @Test
-    public void testInsertIntoNotNullColumn()
+    @Override
+    protected String errorMessageForCreateTableAsSelectNegativeDate(String date)
     {
-        @Language("SQL") String createTableSql = format("" +
-                        "CREATE TABLE %s.tpch.test_insert_not_null (\n" +
-                        "   column_a date,\n" +
-                        "   column_b date NOT NULL\n" +
-                        ")",
-                getSession().getCatalog().get());
-        assertUpdate(createTableSql);
-        assertEquals(computeScalar("SHOW CREATE TABLE test_insert_not_null"), createTableSql);
+        return format("Failed to insert data: Data truncation: Incorrect date value: '%s' for column 'dt' at row 1", date);
+    }
 
-        assertQueryFails("INSERT INTO test_insert_not_null (column_a) VALUES (date '2012-12-31')", "Failed to insert data: Field 'column_b' doesn't have a default value");
-        assertQueryFails("INSERT INTO test_insert_not_null (column_a, column_b) VALUES (date '2012-12-31', null)", "NULL value not allowed for NOT NULL column: column_b");
+    @Override
+    protected String errorMessageForInsertNegativeDate(String date)
+    {
+        return format("Failed to insert data: Data truncation: Incorrect date value: '%s' for column 'dt' at row 1", date);
+    }
 
-        assertUpdate("ALTER TABLE test_insert_not_null ADD COLUMN column_c BIGINT NOT NULL");
-
-        createTableSql = format("" +
-                        "CREATE TABLE %s.tpch.test_insert_not_null (\n" +
-                        "   column_a date,\n" +
-                        "   column_b date NOT NULL,\n" +
-                        "   column_c bigint NOT NULL\n" +
-                        ")",
-                getSession().getCatalog().get());
-        assertEquals(computeScalar("SHOW CREATE TABLE test_insert_not_null"), createTableSql);
-
-        assertQueryFails("INSERT INTO test_insert_not_null (column_b) VALUES (date '2012-12-31')", "Failed to insert data: Field 'column_c' doesn't have a default value");
-        assertQueryFails("INSERT INTO test_insert_not_null (column_b, column_c) VALUES (date '2012-12-31', null)", "NULL value not allowed for NOT NULL column: column_c");
-
-        assertUpdate("INSERT INTO test_insert_not_null (column_b, column_c) VALUES (date '2012-12-31', 1)", 1);
-        assertUpdate("INSERT INTO test_insert_not_null (column_a, column_b, column_c) VALUES (date '2013-01-01', date '2013-01-02', 2)", 1);
-        assertQuery(
-                "SELECT * FROM test_insert_not_null",
-                "VALUES (NULL, CAST('2012-12-31' AS DATE), 1), (CAST('2013-01-01' AS DATE), CAST('2013-01-02' AS DATE), 2)");
-
-        assertUpdate("DROP TABLE test_insert_not_null");
+    @Override
+    protected String errorMessageForInsertIntoNotNullColumn(String columnName)
+    {
+        return format("Failed to insert data: Field '%s' doesn't have a default value", columnName);
     }
 
     @Test

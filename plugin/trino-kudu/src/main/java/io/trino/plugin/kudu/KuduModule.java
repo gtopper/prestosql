@@ -60,7 +60,6 @@ public class KuduModule
         bind(ConnectorPageSourceProvider.class).to(KuduPageSourceProvider.class)
                 .in(Scopes.SINGLETON);
         bind(ConnectorPageSinkProvider.class).to(KuduPageSinkProvider.class).in(Scopes.SINGLETON);
-        bind(KuduHandleResolver.class).in(Scopes.SINGLETON);
         bind(KuduSessionProperties.class).in(Scopes.SINGLETON);
         bind(ConnectorNodePartitioningProvider.class).annotatedWith(ForClassLoaderSafe.class).to(KuduNodePartitioningProvider.class).in(Scopes.SINGLETON);
         bind(ConnectorNodePartitioningProvider.class).to(ClassLoaderSafeNodePartitioningProvider.class).in(Scopes.SINGLETON);
@@ -92,7 +91,6 @@ public class KuduModule
         KuduClient.KuduClientBuilder builder = new KuduClient.KuduClientBuilder(config.getMasterAddresses());
         builder.defaultAdminOperationTimeoutMs(config.getDefaultAdminOperationTimeout().toMillis());
         builder.defaultOperationTimeoutMs(config.getDefaultOperationTimeout().toMillis());
-        builder.defaultSocketReadTimeoutMs(config.getDefaultSocketReadTimeout().toMillis());
         if (config.isDisableStatistics()) {
             builder.disableStatistics();
         }

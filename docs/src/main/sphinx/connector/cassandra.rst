@@ -83,7 +83,7 @@ Property Name                                      Description
         If authorization is enabled, ``cassandra.username`` must have enough permissions to perform ``SELECT`` queries on
         the ``system.size_estimates`` table.
 
-.. _Cassandra consistency: http://www.datastax.com/documentation/cassandra/2.0/cassandra/dml/dml_config_consistency_c.html
+.. _Cassandra consistency: https://docs.datastax.com/en/cassandra-oss/2.2/cassandra/dml/dmlConfigConsistency.html
 
 The following advanced configuration properties are available:
 
@@ -147,7 +147,7 @@ Property Name                                                 Description
 
 ``cassandra.no-host-available-retry-timeout``                 Retry timeout for ``NoHostAvailableException``, defaults to ``1m``.
 
-``cassandra.speculative-execution.limit``                     The number of speculative executions, defaults to ``1``.
+``cassandra.speculative-execution.limit``                     The number of speculative executions. This is disabled by default.
 
 ``cassandra.speculative-execution.delay``                     The delay between each speculative execution, defaults to ``500ms``.
 
@@ -169,7 +169,7 @@ The ``users`` table is an example Cassandra table from the Cassandra
 `Getting Started`_ guide. It can be created along with the ``mykeyspace``
 keyspace using Cassandra's cqlsh (CQL interactive terminal):
 
-.. _Getting Started: https://wiki.apache.org/cassandra/GettingStarted
+.. _Getting Started: https://cassandra.apache.org/doc/latest/cassandra/getting_started/index.html
 
 .. code-block:: text
 
@@ -214,7 +214,7 @@ BOOLEAN           BOOLEAN
 DATE              DATE
 DECIMAL           DOUBLE
 DOUBLE            DOUBLE
-FLOAT             DOUBLE
+FLOAT             REAL
 INET              VARCHAR(45)
 INT               INTEGER
 LIST<?>           VARCHAR
@@ -223,31 +223,35 @@ SET<?>            VARCHAR
 SMALLINT          SMALLINT
 TEXT              VARCHAR
 TIMESTAMP         TIMESTAMP(3) WITH TIME ZONE
-TIMEUUID          VARCHAR
+TIMEUUID          UUID
 TINYINT           TINYINT
+TUPLE             ROW with anonymous fields
+UUID              UUID
+UDT               ROW with field names
 VARCHAR           VARCHAR
-VARIANT           VARCHAR
+VARINT            VARCHAR
 ================  ======
 
 Any collection (LIST/MAP/SET) can be designated as FROZEN, and the value is
 mapped to VARCHAR. Additionally, blobs have the limitation that they cannot be empty.
 
-Types not mentioned in the table above are not supported (e.g. tuple or UDT).
+Types not mentioned in the table above are not supported.
 
 Partition keys can only be of the following types:
-| ASCII
-| TEXT
-| VARCHAR
-| BIGINT
-| BOOLEAN
-| DOUBLE
-| INET
-| INT
-| FLOAT
-| DECIMAL
-| TIMESTAMP
-| UUID
-| TIMEUUID
+
+* ASCII
+* TEXT
+* VARCHAR
+* BIGINT
+* BOOLEAN
+* DOUBLE
+* INET
+* INT
+* FLOAT
+* DECIMAL
+* TIMESTAMP
+* UUID
+* TIMEUUID
 
 Limitations
 -----------
@@ -257,3 +261,26 @@ Limitations
   query with a partition key as a filter.
 * ``IN`` list filters are only allowed on index (that is, partition key or clustering key) columns.
 * Range (``<`` or ``>`` and ``BETWEEN``) filters can be applied only to the partition keys.
+
+.. _cassandra-sql-support:
+
+SQL support
+-----------
+
+The connector provides read and write access to data and metadata in
+the Cassandra database. In addition to the :ref:`globally available
+<sql-globally-available>` and :ref:`read operation <sql-read-operations>`
+statements, the connector supports the following features:
+
+* :doc:`/sql/insert`
+* :doc:`/sql/delete` see :ref:`sql-delete-limitation`
+* :doc:`/sql/create-table`
+* :doc:`/sql/create-table-as`
+* :doc:`/sql/drop-table`
+
+.. _sql-delete-limitation:
+
+SQL delete limitation
+^^^^^^^^^^^^^^^^^^^^^
+
+``DELETE`` is only supported if the ``WHERE`` clause matches entire partitions.

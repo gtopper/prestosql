@@ -15,6 +15,7 @@ package io.trino.transaction;
 
 import com.google.common.util.concurrent.ListenableFuture;
 import io.trino.connector.CatalogName;
+import io.trino.metadata.Catalog;
 import io.trino.metadata.CatalogMetadata;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.transaction.IsolationLevel;
@@ -60,7 +61,13 @@ public class NoOpTransactionManager
     }
 
     @Override
-    public Map<String, CatalogName> getCatalogNames(TransactionId transactionId)
+    public Map<String, Catalog> getCatalogs(TransactionId transactionId)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<CatalogName> getCatalogName(TransactionId transactionId, String catalogName)
     {
         throw new UnsupportedOperationException();
     }

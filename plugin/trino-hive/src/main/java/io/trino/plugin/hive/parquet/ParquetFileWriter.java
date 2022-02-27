@@ -57,16 +57,19 @@ public class ParquetFileWriter
             Map<List<String>, Type> primitiveTypes,
             ParquetWriterOptions parquetWriterOptions,
             int[] fileInputColumnIndexes,
-            CompressionCodecName compressionCodecName)
+            CompressionCodecName compressionCodecName,
+            String trinoVersion)
     {
         requireNonNull(outputStream, "outputStream is null");
+        requireNonNull(trinoVersion, "trinoVersion is null");
 
         this.parquetWriter = new ParquetWriter(
                 outputStream,
                 messageType,
                 primitiveTypes,
                 parquetWriterOptions,
-                compressionCodecName);
+                compressionCodecName,
+                trinoVersion);
 
         this.rollbackAction = requireNonNull(rollbackAction, "rollbackAction is null");
         this.fileInputColumnIndexes = requireNonNull(fileInputColumnIndexes, "fileInputColumnIndexes is null");
@@ -83,11 +86,11 @@ public class ParquetFileWriter
     @Override
     public long getWrittenBytes()
     {
-        return parquetWriter.getWrittenBytes();
+        return parquetWriter.getWrittenBytes() + parquetWriter.getBufferedBytes();
     }
 
     @Override
-    public long getSystemMemoryUsage()
+    public long getMemoryUsage()
     {
         return INSTANCE_SIZE + parquetWriter.getRetainedBytes();
     }

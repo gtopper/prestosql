@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.units.Duration;
 import io.trino.connector.CatalogName;
+import io.trino.metadata.Catalog;
 import io.trino.metadata.CatalogMetadata;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.transaction.IsolationLevel;
@@ -83,9 +84,15 @@ public class TestingTransactionManager
     }
 
     @Override
-    public Map<String, CatalogName> getCatalogNames(TransactionId transactionId)
+    public Map<String, Catalog> getCatalogs(TransactionId transactionId)
     {
         return ImmutableMap.of();
+    }
+
+    @Override
+    public Optional<CatalogName> getCatalogName(TransactionId transactionId, String catalogName)
+    {
+        return Optional.empty();
     }
 
     @Override

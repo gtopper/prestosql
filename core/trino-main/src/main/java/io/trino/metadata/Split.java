@@ -18,7 +18,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.connector.CatalogName;
 import io.trino.execution.Lifespan;
 import io.trino.spi.HostAddress;
+import io.trino.spi.SplitWeight;
 import io.trino.spi.connector.ConnectorSplit;
+import org.openjdk.jol.info.ClassLayout;
 
 import java.util.List;
 
@@ -27,6 +29,8 @@ import static java.util.Objects.requireNonNull;
 
 public final class Split
 {
+    private static final int INSTANCE_SIZE = ClassLayout.parseClass(Split.class).instanceSize();
+
     private final CatalogName catalogName;
     private final ConnectorSplit connectorSplit;
     private final Lifespan lifespan;
@@ -75,6 +79,11 @@ public final class Split
         return connectorSplit.isRemotelyAccessible();
     }
 
+    public SplitWeight getSplitWeight()
+    {
+        return connectorSplit.getSplitWeight();
+    }
+
     @Override
     public String toString()
     {
@@ -83,5 +92,13 @@ public final class Split
                 .add("connectorSplit", connectorSplit)
                 .add("lifespan", lifespan)
                 .toString();
+    }
+
+    public long getRetainedSizeInBytes()
+    {
+        return INSTANCE_SIZE
+                + catalogName.getRetainedSizeInBytes()
+                + connectorSplit.getRetainedSizeInBytes()
+                + lifespan.getRetainedSizeInBytes();
     }
 }

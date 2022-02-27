@@ -150,6 +150,8 @@ public class KuduClientSession
         KuduTable table = tableHandle.getTable(this);
         int primaryKeyColumnCount = table.getSchema().getPrimaryKeyColumnCount();
         KuduScanToken.KuduScanTokenBuilder builder = client.newScanTokenBuilder(table);
+        // TODO: remove when kudu client bug is fixed: https://gerrit.cloudera.org/#/c/18166/
+        builder.includeTabletMetadata(false);
 
         TupleDomain<ColumnHandle> constraint = tableHandle.getConstraint()
                 .intersect(dynamicFilter.getCurrentPredicate().simplify(100));
@@ -231,7 +233,7 @@ public class KuduClientSession
             return client.openTable(rawName);
         }
         catch (KuduException e) {
-            log.debug("Error on doOpenTable: " + e, e);
+            log.debug(e, "Error on doOpenTable");
             if (!listSchemaNames().contains(schemaTableName.getSchemaName())) {
                 throw new SchemaNotFoundException(schemaTableName.getSchemaName());
             }
@@ -603,7 +605,7 @@ public class KuduClientSession
     {
         try {
             byte[] serializedScanToken = token.serialize();
-            return new KuduSplit(tableHandle, primaryKeyColumnCount, serializedScanToken, bucketNumber);
+            return new KuduSplit(tableHandle.getSchemaTableName(), primaryKeyColumnCount, serializedScanToken, bucketNumber);
         }
         catch (IOException e) {
             throw new TrinoException(GENERIC_INTERNAL_ERROR, e);
